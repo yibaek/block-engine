@@ -1,0 +1,130 @@
+<?php
+namespace Ntuple\Synctree\Template\BlockHandle\Blocks\File;
+
+use Exception;
+use Ntuple\Synctree\Exceptions\Inner\SynctreeInnerException;
+use Ntuple\Synctree\Exceptions\InvalidArgumentException;
+use Ntuple\Synctree\Exceptions\ISynctreeException;
+use Ntuple\Synctree\Exceptions\RuntimeException;
+use Ntuple\Synctree\Exceptions\FileException;
+use Ntuple\Synctree\Exceptions\SynctreeException;
+use Ntuple\Synctree\Plan\PlanStorage;
+use Ntuple\Synctree\Template\BlockHandle\BlockHandleTrait;
+use Ntuple\Synctree\Template\BlockHandle\IBlock;
+use Ntuple\Synctree\Util\Extra\ExtraManager;
+use Ntuple\Synctree\Util\File\Exception\UtilFileException;
+use Ntuple\Synctree\Util\File\FileSupport;
+use Ntuple\Synctree\Util\ValidationUtil;
+use Throwable;
+
+class Write implements IBlock
+{
+    use BlockHandleTrait;
+
+    public const TYPE = 'file';
+    public const ACTION = 'write';
+
+    private $storage;
+    private $type;
+    private $action;
+    private $extra;
+    private $file;
+    private $contents;
+
+    /**
+     * Write constructor.
+     * @param PlanStorage $storage
+     * @param ExtraManager|null $extra
+     * @param IBlock|null $file
+     * @param IBlock|null $contents
+     */
+    public function __construct(PlanStorage $storage, ExtraManager $extra = null, IBlock $file = null, IBlock $contents = null)
+    {
+        $this->storage = $storage;
+        $this->type = self::TYPE;
+        $this->action = self::ACTION;
+        $this->extra = $extra ?? new ExtraManager($storage);
+        $this->file = $file;
+        $this->contents = $contents;
+    }
+
+    /**
+     * @param array $data
+     * @return IBlock
+     * @throws Exception
+     */
+    public function setData(array $data): IBlock
+    {
+        $this->type = $data['type'];
+        $this->action = $data['action'];
+        $this->extra = $this->setExtra($this->storage, $data['extra'] ?? []);
+        $this->file = $this->setBlock($this->storage, $data['template']['file']);
+        $this->contents = $this->setBlock($this->storage, $data['template']['contents']);
+
+        return $this;
+    }
+
+    /**
+     * @return array
+     */
+    public function getTemplate(): array
+    {
+        return [
+            'type' => $this->type,
+            'action' => $this->action,
+            'extra' => $this->extra->getData(),
+            'template' => [
+                'file' => $this->file->getTemplate(),
+                'contents' => $this->contents->getTemplate()
+            ]
+        ];
+    }
+
+    /**
+     * @param array $blockStorage
+     * @return int
+     * @throws Throwable|ISynctreeException
+     */
+    public function do(array &$blockStorage): int
+    {
+        try {
+            return ($this->getFile($blockStorage))->write($this->getContents($blockStorage));
+        } catch (UtilFileException $ex) {
+            throw (new FileException($ex->getMessage()))->setExceptionKey(self::TYPE, self::ACTION)->setExtraData($this->extra->getData());
+        } catch (SynctreeException|SynctreeInnerException $ex) {
+            throw $ex;
+        } catch (Throwable $ex) {
+            $this->storage->getLogger()->exception($ex, self::TYPE.':'.self::ACTION);
+            throw (new RuntimeException('File-Write'))->setExceptionKey(self::TYPE, self::ACTION)->setExtraData($this->extra->getData());
+        }
+    }
+
+    /**
+     * @param array $blockStorage
+     * @return FileSupport
+     * @throws ISynctreeException
+     */
+    private function getFile(array &$blockStorage): FileSupport
+    {
+        $file = $this->file->do($blockStorage);
+        if (!$file instanceof FileSupport) {
+            throw (new InvalidArgumentException('File-Write: Invalid file: Not a File type'))->setExceptionKey(self::TYPE, self::ACTION)->setExtraData($this->extra->getData());
+        }
+
+        return $file;
+    }
+
+    /**
+     * @param array $blockStorage
+     * @return string
+     * @throws ISynctreeException
+     */
+    private function getContents(array &$blockStorage): string
+    {
+        try {
+            return ValidationUtil::isConvertStringType($this->contents->do($blockStorage));
+        } catch (\InvalidArgumentException $ex) {
+            throw (new InvalidArgumentException('File-Write: Invalid contents: '.$ex->getMessage()))->setExceptionKey(self::TYPE, self::ACTION)->setExtraData($this->extra->getData());
+        }
+    }
+}

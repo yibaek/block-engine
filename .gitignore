@@ -1,0 +1,11 @@
+.idea
+composer.lock
+application/routes/test.router.php
+application/routes/gen/*
+/vendor/
+/logs/*
+/contents/*
+application/functions/*
+.phpunit.result.cache
+.phpunit.cache
+.DS_Store
